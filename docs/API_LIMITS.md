@@ -19,6 +19,8 @@ The first item is the primary technical constraint. The other three are supporti
 | Direct Heroic Strike queued-spell API | No assumption | The addon observes only `IsCurrentAction` for configured/detected action-bar slots. |
 | Arbitrary on-disk log file | Not attempted | Addon sandboxing uses SavedVariables, written by the client on shutdown. |
 
+The client-owned `LoggingCombat(true)` toggle is an exception: it asks WoW itself to write `Logs/WoWCombatLog.txt`. This addon calls it at session start only after checking that the API exists; it records the result and does not turn it off at session stop.
+
 ## What an HS transition means
 
 `hsState.active` means at least one configured/detected Heroic Strike action-bar slot returned true from the selected current-action API at the most recent scan. `inactive` means every checked slot returned false. `unknown` means no validated slot/API result was available. It is **not** proof that the next swing was altered, that a Heroic Strike landed, or that an off-hand swing had a particular result.

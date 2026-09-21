@@ -141,10 +141,40 @@ end
 
 local function chat(message)
     local text = "|cff70d6ffFCR:|r " .. message
-    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
-        DEFAULT_CHAT_FRAME:AddMessage(text)
-    else
-        print(text)
+    local delivered = false
+    local maxFrames = tonumber(_G.NUM_CHAT_WINDOWS) or 10
+    local probes = {
+        "CHAT_MSG_COMBAT_SELF_HITS",
+        "CHAT_MSG_COMBAT_SELF_MISSES",
+        "CHAT_MSG_COMBAT_MISC_INFO",
+    }
+
+    -- The Combat Log can be moved or renamed, so do not assume ChatFrame2.
+    -- Instead, use the frame currently subscribed to combat-message events.
+    for index = 1, maxFrames do
+        local chatFrame = _G["ChatFrame" .. index]
+        if chatFrame and type(chatFrame.IsEventRegistered) == "function" and type(chatFrame.AddMessage) == "function" then
+            local isCombatLog = false
+            for _, eventName in ipairs(probes) do
+                local ok, registered = pcall(chatFrame.IsEventRegistered, chatFrame, eventName)
+                if ok and registered then
+                    isCombatLog = true
+                    break
+                end
+            end
+            if isCombatLog then
+                chatFrame:AddMessage(text, 0.44, 0.84, 1.00)
+                delivered = true
+            end
+        end
+    end
+
+    if not delivered then
+        if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+            DEFAULT_CHAT_FRAME:AddMessage(text)
+        else
+            print(text)
+        end
     end
 end
 
@@ -282,10 +312,30 @@ local function spellNameForAction(actionID)
     return nil
 end
 
+local function spellNameForMacro(macroID)
+    if type(_G.GetMacroSpell) ~= "function" then
+        return nil
+    end
+    local ok, first, second = pcall(_G.GetMacroSpell, macroID)
+    if not ok then
+        return nil
+    end
+    if type(second) == "number" then
+        return spellNameForAction(second)
+    end
+    return safeString(first)
+end
+
 local function actionInfo(slot)
     if _G.C_ActionBar and type(_G.C_ActionBar.GetActionInfo) == "function" then
         local ok, actionType, actionID = pcall(_G.C_ActionBar.GetActionInfo, slot)
         if ok then
+            -- Some current-client builds return an action-info table, while
+            -- older/compatibility builds return separate values.
+            if type(actionType) == "table" then
+                actionID = actionType.actionID or actionType.id
+                actionType = actionType.actionType or actionType.type
+            end
             return safeString(actionType), actionID, "C_ActionBar.GetActionInfo"
         end
     end
@@ -302,11 +352,14 @@ local function discoverHeroicStrikeSlots()
     autoSlots = {}
     for slot = 1, ACTION_SLOT_MAX do
         local actionType, actionID = actionInfo(slot)
+        local name
         if actionType == "spell" and type(actionID) == "number" then
-            local name = spellNameForAction(actionID)
-            if name and string.lower(name) == ENGLISH_HEROIC_STRIKE then
-                table.insert(autoSlots, slot)
-            end
+            name = spellNameForAction(actionID)
+        elseif actionType == "macro" and type(actionID) == "number" then
+            name = spellNameForMacro(actionID)
+        end
+        if name and string.lower(name) == ENGLISH_HEROIC_STRIKE then
+            table.insert(autoSlots, slot)
         end
     end
     slotsDirty = false
@@ -328,6 +381,10 @@ local function configuredSlots()
 end
 
 local function currentAction(slot)
+    if _G.C_ActionBar and type(_G.C_ActionBar.IsActionCurrent) == "function" then
+        local active, state = callBoolean(_G.C_ActionBar.IsActionCurrent, slot)
+        return active, state, "C_ActionBar.IsActionCurrent"
+    end
     if _G.C_ActionBar and type(_G.C_ActionBar.IsCurrentAction) == "function" then
         local active, state = callBoolean(_G.C_ActionBar.IsCurrentAction, slot)
         return active, state, "C_ActionBar.IsCurrentAction"
@@ -376,9 +433,13 @@ local function recordHSState(reason, force)
         return
     end
     local observation = scanHeroicStrike(reason)
-    if force or observation.state ~= lastHSState then
+    local changed = observation.state ~= lastHSState
+    if force or changed then
         appendRecord("hs_transition", observation)
         lastHSState = observation.state
+    end
+    if changed then
+        chat("Heroic Strike queue: " .. string.upper(observation.state) .. ".")
     end
 end
 
@@ -402,6 +463,7 @@ local function buildCapabilities()
         build = build,
         heroStrikeQueue = {
             currentActionModern = type(_G.C_ActionBar) == "table" and type(_G.C_ActionBar.IsCurrentAction) == "function",
+            currentActionModernRenamed = type(_G.C_ActionBar) == "table" and type(_G.C_ActionBar.IsActionCurrent) == "function",
             currentActionLegacy = type(_G.IsCurrentAction) == "function",
             actionInfoModern = type(_G.C_ActionBar) == "table" and type(_G.C_ActionBar.GetActionInfo) == "function",
             actionInfoLegacy = type(_G.GetActionInfo) == "function",
@@ -428,6 +490,30 @@ local function snapshot(reason)
     appendRecord("snapshot", { reason = reason, player = playerSnapshot(), target = targetSnapshot() })
 end
 
+local function enableCombatFileLogging()
+    local wasEnabled, initialState = callBoolean(_G.LoggingCombat)
+    local isEnabled, resultState = callBoolean(_G.LoggingCombat, true)
+    local outcome = "unavailable"
+    if resultState == "ok" then
+        if isEnabled then
+            outcome = wasEnabled and "already_enabled" or "enabled"
+        else
+            outcome = "refused_or_disabled"
+        end
+    elseif resultState == "secret" then
+        outcome = "secret_result"
+    elseif string.find(resultState, "error:") then
+        outcome = "error"
+    end
+    return {
+        api = "LoggingCombat",
+        before = persistable(wasEnabled), beforeResult = initialState,
+        after = persistable(isEnabled), result = resultState,
+        outcome = outcome,
+        policy = "enabled at session start; never disabled automatically",
+    }
+end
+
 local function startSession(label)
     if activeSession then
         chat("A session is already active: " .. activeSession.id)
@@ -449,9 +535,18 @@ local function startSession(label)
     table.insert(db.sessions, activeSession)
     db.activeSessionID = id
     lastHSState = nil
+    local combatFileLogging = enableCombatFileLogging()
+    appendRecord("combat_file_logging", combatFileLogging)
     snapshot("session_start")
     appendRecord("session_start", { label = activeSession.label })
     recordHSState("session_start", true)
+    if combatFileLogging.outcome == "enabled" then
+        chat("Client combat-file logging enabled.")
+    elseif combatFileLogging.outcome == "already_enabled" then
+        chat("Client combat-file logging was already enabled.")
+    else
+        chat("Client combat-file logging was not confirmed: " .. combatFileLogging.outcome .. ".")
+    end
     chat("Started " .. id .. ".")
 end
 
@@ -511,7 +606,11 @@ local function slashCommand(message)
             db.settings.heroicStrikeSlots = {}
             slotsDirty = true
             discoverHeroicStrikeSlots()
-            chat("Using English-name auto-discovery. Configure slots explicitly on localized clients.")
+            if #autoSlots > 0 then
+                chat("Auto-discovery found Heroic Strike in action slot(s): " .. table.concat(autoSlots, ",") .. ".")
+            else
+                chat("Auto-discovery found no Heroic Strike slot. Ensure the spell, not an empty button, is on an action bar and run /fcr slots auto again.")
+            end
         else
             local slots, err = parseSlotList(argument)
             if not slots then

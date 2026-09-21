@@ -56,6 +56,8 @@ Each manual session begins with a player snapshot and a target snapshot. Target 
 
 For reliable Heroic Strike observations, put a Heroic Strike rank on a visible action-bar slot and use `/fcr slots N` to configure that exact slot. `auto` only recognizes the English spell name; localized clients should configure slots explicitly.
 
+While a session is active, the Combat Log chat frame announces each detected queue transition as `Heroic Strike queue: ACTIVE.` or `INACTIVE.` If no Combat Log chat frame is configured, the addon falls back to the default chat frame. This is a quick validation aid; it has the same 0.10-second sampling limitation as the saved records.
+
 ## Export
 
 WoW addons cannot create arbitrary files. On a normal clean client shutdown, WoW serializes `ForeverCombatResearchDB` to:
@@ -65,6 +67,8 @@ WTF/Account/<ACCOUNT>/SavedVariables/ForeverCombatResearch.lua
 ```
 
 That SavedVariables file is the export. Do not edit it while WoW is running. Copy it after exiting fully, retain the original, and attach it to analysis separately. The database is intentionally structured Lua data, not CSV, because it can contain safe strings, unavailable markers, and Secret-Value markers without pretending they are equivalent.
+
+When `/fcr start` succeeds, the addon also calls the client API `LoggingCombat(true)`. On current Forever builds this enables the separate client combat-log file at `Logs/WoWCombatLog.txt`. The addon records the API result as a `combat_file_logging` record and never turns client combat logging off automatically; use `/combatlog` yourself if you later want to disable it.
 
 The session buffer has a 75,000-record default cap. A session stores `droppedRecords` and a truncation diagnostic if it hits that cap; a truncated session is not suitable for a completeness claim.
 
