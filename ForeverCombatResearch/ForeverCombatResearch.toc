@@ -1,4 +1,5 @@
-## Interface: 160001
+## Interface: 16001
+## AllowLoadGameType: standard, camelot
 ## Title: Forever Combat Research
 ## Notes: Evidence-preserving combat research logger for WoW Forever.
 ## Author: Community research project

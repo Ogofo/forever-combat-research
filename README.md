@@ -27,8 +27,19 @@ Each manual session begins with a player snapshot and a target snapshot. Target 
 ## Install
 
 1. Download the repository ZIP or clone it.
-2. Copy the `ForeverCombatResearch` folder into the Forever client's `Interface/AddOns` folder.
-3. At character select, enable **Forever Combat Research** (and "Load out of date AddOns" only if the client marks this early-Beta TOC stale).
+2. Copy the `ForeverCombatResearch` folder into the Forever Beta client's `Interface/AddOns` folder. The current beta path is usually:
+
+   ```text
+   <World of Warcraft folder>\_classic_beta_\Interface\AddOns\
+   ```
+
+   The resulting file must be exactly:
+
+   ```text
+   <World of Warcraft folder>\_classic_beta_\Interface\AddOns\ForeverCombatResearch\ForeverCombatResearch.toc
+   ```
+
+3. Quit and restart WoW completely. At character select, open the menu button and choose **AddOns**, then enable **Forever Combat Research**. The menu location can vary between beta builds. If no AddOns item appears, the client did not discover any addon: re-check the exact final path above.
 4. Log into a Warrior and type `/fcr status`.
 
 ## Usage
