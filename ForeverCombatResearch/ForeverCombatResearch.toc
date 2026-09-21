@@ -1,0 +1,8 @@
+## Interface: 160001
+## Title: Forever Combat Research
+## Notes: Evidence-preserving combat research logger for WoW Forever.
+## Author: Community research project
+## Version: 0.1.0
+## SavedVariables: ForeverCombatResearchDB
+
+ForeverCombatResearch.lua
